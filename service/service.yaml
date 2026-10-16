@@ -1,0 +1,28 @@
+# vq-service configuration. Relative paths are resolved against this file's directory.
+site_file: ../site.yaml
+
+engine:
+  service_s: 200              # service duration
+  maneuver_s: 30              # occupancy = service + maneuver = 230 s
+  speed_mps: 10.0             # design speed 36 km/h
+  station_radius_m: 50.0
+  unload_radius_m: 50.0
+  standing_kmh: 1.0           # "standing" = speed below this
+  decision_radius_m: 1500.0
+  horizon_s: 1800             # queue horizon, 30 min
+  fresh_s: 30                 # positions older than this vs now are stale
+  min_gain_s: 60
+  metric: queue_wait          # queue_wait (task rules) | service_end
+  apply_decisions: true       # false = shadow mode (decisions published, queues ignore redirects)
+
+kafka:
+  bootstrap: localhost:9092
+  telemetry_topic: telemetry.v1
+  queue_topic: queue.v1
+  decision_topic: decision.v1
+  state_topic: vq.state.v1
+  group_id: vq-service
+  transactional_id: vq-service
+  state_key: vq-service       # snapshot key in the compacted state topic (one per instance)
+  commit_interval_ms: 100     # a transaction is committed every 100 ms ...
+  commit_max_messages: 500    # ... or every 500 input messages, whichever first

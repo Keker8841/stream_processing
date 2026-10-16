@@ -1,0 +1,16 @@
+"""Shared constants of the site model and the generator."""
+
+SERVICE_S = 200
+MANEUVER_S = 0             # generator default; service model uses 30
+SPEED_MPS = 10.0
+SPEED_KMH = 36.0
+STATION_RADIUS_M = 50.0
+UNLOAD_RADIUS_M = 50.0
+DECISION_RADIUS_M = 1500.0
+STOP_OFFSET_M = 15.0
+MAX_LATENESS_S = 60
+EARTH_RADIUS_M = 6_371_000.0
+DEFAULT_START_TS = 1789473600   # 2026-09-15T12:00:00Z
+DEFAULT_COORD_PRECISION = 4
+TELEMETRY_TOPIC = "telemetry.v1"
+DECISION_TOPIC = "decision.v1"

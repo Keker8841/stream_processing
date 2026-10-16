@@ -1,0 +1,145 @@
+# The worked example from the task statement, with the task's own numbers.
+#
+# Task statement (event time 12:00:00, station S1, occupancy = 200 s service + 30 s maneuver = 230 s,
+# ETA = straight-line distance to the station center / 10 m/s):
+#   T1 stands 15 m from S1, first such message at 11:59:00 -> occupies S1 11:59:00 .. 12:02:50
+#   T2 is 1200 m from S1, driving to it              -> arrives 12:02:00, waits 50 s
+#   T3 is 3000 m from S1                             -> arrives 12:05:00, waits 100 s
+#   T4 drives to its own S1 and crosses the 1500 m decision radius: S1 is 900 m away, S2 2400 m (S2 empty)
+#     S1: arrives 12:01:30, S1 frees 12:02:50 after T1 -> wait 80 s;  S2: arrives 12:04:00 -> wait 0 s
+#     -> recommended S2, gain 80 s.
+#
+# How the telemetry produces this: T4's message at 11:59:00 is 1502 m from S1 (outside the decision radius).
+# Its messages 11:59:01 .. 11:59:59 arrive late, at 12:00:01, after its 12:00:00 message (`delays` below; the
+# 11:59:01 one is 60 s late, the maximum the task allows). So the first T4 message inside 1500 m that the service
+# accepts is the 12:00:00 one at 902 m; the late ones are older than it and are ignored.
+#   - From 11:59:31 T4's last position (11:59:00) is older than 30 s: T4 is out of the queues until 12:00:00.
+#     That is why the task's S1 table at 12:00:00 has T1/T2/T3 only and T2/T3 wait 50/100 s.
+#   - T2 crosses 1500 m at 11:59:31, when T4 is already excluded: wait at S1 50 s -> no_gain (< 60 s).
+#   - The recommendation moves T4 to S2's queue, so S1 keeps the task's table after the decision too.
+#
+# Distances at 12:00:00 are 2 m longer than the task's round numbers (T2 1202, T3 3002, T4 902 m): a crossing of
+# 1500 m then falls at 11:59:31 / 12:02:31 whatever the coordinate rounding, and every ETA is unchanged because
+# d / 10 is rounded to whole seconds (120.2 -> 120). The whole scenario uses 6-decimal coordinates.
+# Unit positions in `units` are the state BEFORE the first tick (sim: now == start_ts - 1) and a to_station unit
+# has already moved 10 m in its first record, so they are given 10 m farther out: 1812 / 3612 / 1512 m.
+# The generator stops 15 m before the station center; all distances below are to centers (as the service measures).
+#
+# Geometry (local meters around the center = S1, x east, y north; spherical earth R = 6371 km):
+#   S1 (0, 0)   U1 (-5000, 0)   S2 (-902, -2400)   S3 (2500, 3000)   S4 (2500, -3500)
+#   T2, T3, T4 drive east along the U1 -> S1 road (y = 0). T4 at 12:00:00 is at (-902, 0), 2400 m north of S2.
+#   Haversine distances of the 6-decimal telemetry: T4 at 11:59:00 S1 1502.003; T4 at 12:00:00 S1 902.016,
+#   S2 2400.031, S3 4535.150, S4 4881.680; T2 at 11:59:30 / 11:59:31 S1 1502.003 / 1492.034, S2 2471.522 at
+#   11:59:31; T3 at 12:00:00 S1 3001.968.
+name: task_example
+description: >-
+  Task statement example at S1: T1 in service since 11:59:00, T2/T3 approaching, T4's messages of 11:59:01-59
+  arrive after its 12:00:00 message, so T4 is first seen inside the 1500 m decision radius at 900 m.
+  Run with maneuver_s 30 so that the generator ground truth matches the service occupancy model (230 s).
+start_ts: "2026-09-15T11:59:00Z"
+coord_precision: 6
+duration_s: 960          # 11:59:00 .. 12:14:59, covers T3's service in the open loop
+service_s: 200
+maneuver_s: 30
+site:
+  center: {lat: 49.1293, lon: 142.6601}
+  unload: {uuid: U1, lat: 49.1293, lon: 142.591382}
+  stations:
+    - {uuid: S1, lat: 49.1293, lon: 142.6601}
+    - {uuid: S2, lat: 49.107716, lon: 142.647703}
+    - {uuid: S3, lat: 49.15628, lon: 142.694459}
+    - {uuid: S4, lat: 49.097824, lon: 142.694459}
+  assignment: {T1: S1, T2: S1, T3: S1, T4: S1}
+units:                   # first records at 11:59:00: T1 standing (service second 1 of 200), T2/T3/T4 1802/3602/1502 m
+  - {unit_uuid: T1, phase: in_service, service_elapsed_s: 0}
+  - {unit_uuid: T2, phase: to_station, position: {from_station: S1, distance_m: 1812, toward: U1}}
+  - {unit_uuid: T3, phase: to_station, position: {from_station: S1, distance_m: 3612, toward: U1}}
+  - {unit_uuid: T4, phase: to_station, position: {from_station: S1, distance_m: 1512, toward: U1}}
+delays:
+  - {unit_uuid: T4, from_ts: "2026-09-15T11:59:01Z", to_ts: "2026-09-15T11:59:59Z", emit_at: "2026-09-15T12:00:01Z"}
+expect:
+  snapshot_at: "2026-09-15T12:00:00Z"
+  service_model: {service_s: 200, maneuver_s: 30, occupancy_s: 230, speed_mps: 10.0, decision_radius_m: 1500}
+  distances_m:           # at 12:00:00, to station centers
+    T1: {S1: 15}         # stands at the generator stop point
+    T2: {S1: 1202}
+    T3: {S1: 3002}
+    T4: {S1: 902, S2: 2400, S3: 4536, S4: 4881}   # S3/S4: ~0.7 m more/less by haversine
+  t4_last_seen_before_1200: {at: "2026-09-15T11:59:00Z", S1: 1502}
+  # Virtual queues at 12:00:00 before T4's 12:00:00 message: T4's last position (11:59:00) is stale.
+  # service_start = max(eta, previous free_at); free_at = service_start + 230; wait = service_start - eta.
+  #   T1: in service since 11:59:00                     free_at 11:59:00 + 230 s = 12:02:50
+  #   T2: eta 12:00:00 + 1202/10 = 12:02:00   start max(12:02:00, 12:02:50) = 12:02:50  wait  50  free 12:06:40
+  #   T3: eta 12:00:00 + 3002/10 = 12:05:00   start max(12:05:00, 12:06:40) = 12:06:40  wait 100  free 12:10:30
+  queues:
+    S1:
+      - {unit_uuid: T1, eta: "2026-09-15T11:59:00Z", service_start: "2026-09-15T11:59:00Z", free_at: "2026-09-15T12:02:50Z", wait_s: 0}
+      - {unit_uuid: T2, eta: "2026-09-15T12:02:00Z", service_start: "2026-09-15T12:02:50Z", free_at: "2026-09-15T12:06:40Z", wait_s: 50}
+      - {unit_uuid: T3, eta: "2026-09-15T12:05:00Z", service_start: "2026-09-15T12:06:40Z", free_at: "2026-09-15T12:10:30Z", wait_s: 100}
+    S2: []
+    S3: []
+    S4: []
+  # Decision for T4 on its 12:00:00 message (first accepted message inside 1500 m):
+  #   S1: eta 12:00:00 + 902/10 = 12:01:30; the last unit arriving earlier is T1 (free 12:02:50) -> wait 80
+  #   S2: eta 12:00:00 + 2400/10 = 12:04:00, empty -> wait 0
+  #   S3: ~4536 m -> eta 12:07:34, S4: ~4881 m -> eta 12:08:08, empty -> wait 0 (S2 is the nearest zero wait)
+  #   gain = 80 - 0 = 80 s >= 60 -> recommended S2.
+  decision:
+    unit_uuid: T4
+    at: "2026-09-15T12:00:00Z"
+    result: recommended
+    from_station: S1
+    to_station: S2
+    gain_seconds: 80
+    wait_s: {S1: 80, S2: 0, S3: 0, S4: 0}
+    eta: {S1: "2026-09-15T12:01:30Z", S2: "2026-09-15T12:04:00Z", S3: "2026-09-15T12:07:34Z", S4: "2026-09-15T12:08:08Z"}
+    service_start: {S1: "2026-09-15T12:02:50Z", S2: "2026-09-15T12:04:00Z"}
+  # With the `service_end` metric (service start + 230 s at each station): S1 12:06:40, S2 12:07:50,
+  # S3 12:11:24, S4 12:11:58 -> the own station is best -> rejected no_gain.
+  decision_service_end: {unit_uuid: T4, at: "2026-09-15T12:00:00Z", result: rejected, reason: no_gain}
+  # After the recommendation (applied mode) T4 is in S2's queue; S1 is unchanged.
+  queues_after_decision:
+    S1:
+      - {unit_uuid: T1, eta: "2026-09-15T11:59:00Z", service_start: "2026-09-15T11:59:00Z", free_at: "2026-09-15T12:02:50Z", wait_s: 0}
+      - {unit_uuid: T2, eta: "2026-09-15T12:02:00Z", service_start: "2026-09-15T12:02:50Z", free_at: "2026-09-15T12:06:40Z", wait_s: 50}
+      - {unit_uuid: T3, eta: "2026-09-15T12:05:00Z", service_start: "2026-09-15T12:06:40Z", free_at: "2026-09-15T12:10:30Z", wait_s: 100}
+    S2:
+      - {unit_uuid: T4, eta: "2026-09-15T12:04:00Z", service_start: "2026-09-15T12:04:00Z", free_at: "2026-09-15T12:07:50Z", wait_s: 0}
+    S3: []
+    S4: []
+  # Shadow mode (decision published, not applied): T4 joins S1's queue ahead of T2.
+  queues_shadow:
+    S1:
+      - {unit_uuid: T1, eta: "2026-09-15T11:59:00Z", service_start: "2026-09-15T11:59:00Z", free_at: "2026-09-15T12:02:50Z", wait_s: 0}
+      - {unit_uuid: T4, eta: "2026-09-15T12:01:30Z", service_start: "2026-09-15T12:02:50Z", free_at: "2026-09-15T12:06:40Z", wait_s: 80}
+      - {unit_uuid: T2, eta: "2026-09-15T12:02:00Z", service_start: "2026-09-15T12:06:40Z", free_at: "2026-09-15T12:10:30Z", wait_s: 280}
+      - {unit_uuid: T3, eta: "2026-09-15T12:05:00Z", service_start: "2026-09-15T12:10:30Z", free_at: "2026-09-15T12:14:20Z", wait_s: 330}
+    S2: []
+    S3: []
+    S4: []
+  # T2 crosses 1500 m at 11:59:31 (1492 m): eta S1 12:02:00, T1 frees 12:02:50 -> wait 50 (T4 is stale and not
+  # in the queue). S2 2472 m -> eta 12:03:38, empty -> wait 0. Gain by wait 50 < 60 -> no_gain. By end of service
+  # S1 12:06:40 is earlier than S2 12:07:28 -> no_gain as well.
+  earlier_decisions:
+    - {unit_uuid: T2, at: "2026-09-15T11:59:31Z", result: rejected, reason: no_gain, wait_s: {S1: 50, S2: 0},
+       eta: {S1: "2026-09-15T12:02:00Z", S2: "2026-09-15T12:03:38Z"}}
+  # Later, T3 crosses 1500 m at 12:02:31 (1492 m, eta S1 12:05:00, S2 12:06:38, S3 12:10:50, S4 12:11:22).
+  # T1 leaves S1 at 12:02:20 and its 50 m radius at 12:02:23, which releases S1 before its 230 s timer.
+  #   Applied (T4 heading to S2, eta 12:04:00, free 12:07:50): T2, standing at S1 since 12:01:59, occupies it at
+  #   12:02:23 -> free 12:06:13. Waits S1 73, S2 72, S3/S4 0 -> S3 (nearer than S4) with gain 73.
+  #   Shadow (T4 in S1's radius since 12:01:26, ahead of T2): T4 occupies S1 at 12:02:23 (free 12:06:13), T2 waits
+  #   (eta = its radius entry 12:01:56, start 12:06:13, free 12:10:03). Waits S1 303, S2/S3/S4 0 -> S2 with gain 303.
+  #   By end of service (T4 is not redirected with this metric): S1 12:13:53, S2 12:10:28 -> S2 with gain 205.
+  # Generator ground truth with service_s 200, maneuver_s 30 (open loop). Arrival = standing at the stop point
+  # (15 m before the center), counted from the first records at 11:59:00 (1802/1502/3602 m):
+  #   T4 1487 m to the stop point -> 148.7 s -> 11:59:00 + 149 s = 12:01:29;  T2 1787 m -> 12:01:59;  T3 3587 m -> 12:04:59
+  #   T1 departs 11:59:00 + 200 = 12:02:20; T4 (in the radius first) starts 12:02:20 + 30 = 12:02:50, departs 12:06:10;
+  #   T2 starts 12:06:10 + 30 = 12:06:40, departs 12:10:00; T3 starts 12:10:30, departs 12:13:50.
+  #   These equal the service's shadow-mode queue (T1, T4, T2, T3). With T4 redirected (closed loop): T4 stands at
+  #   S2 at 12:03:59 (2385 m from 12:00:00) and departs 12:07:19; at S1, T2 starts 12:02:50 and T3 12:06:40, as in
+  #   the task's table.
+  generator_truth_open_loop:
+    T1: {service_start: "2026-09-15T11:59:00Z", depart: "2026-09-15T12:02:20Z"}
+    T4: {arrive: "2026-09-15T12:01:29Z", service_start: "2026-09-15T12:02:50Z", depart: "2026-09-15T12:06:10Z"}
+    T2: {arrive: "2026-09-15T12:01:59Z", service_start: "2026-09-15T12:06:40Z", depart: "2026-09-15T12:10:00Z"}
+    T3: {arrive: "2026-09-15T12:04:59Z", service_start: "2026-09-15T12:10:30Z", depart: "2026-09-15T12:13:50Z"}
